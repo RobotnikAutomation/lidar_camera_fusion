@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <tf/tf.h>
+#include <tf/transform_listener.h>
 #include <tf/transform_broadcaster.h>
 #include <sensor_msgs/Image.h>
 #include <cv_bridge/cv_bridge.h>
@@ -37,7 +38,7 @@ using namespace sensor_msgs;
 using namespace message_filters;
 using namespace std;
 
-typedef pcl::PointCloud<pcl::PointXYZI> PointCloud;
+typedef pcl::PointCloud<pcl::PointXYZI> LC_PointCloud;
 
 //Publisher
 ros::Publisher pcOnimg_pub;
@@ -46,12 +47,13 @@ ros::Publisher pc_pub;
 
 float maxlen =100.0;       //maxima distancia del lidar
 float minlen = 0.01;     //minima distancia del lidar
-float max_FOV = 3.0;    // en radianes angulo maximo de vista de la camara
-float min_FOV = 0.4;    // en radianes angulo minimo de vista de la camara
+float max_FOV = 6.28;    // en radianes angulo maximo de vista de la camara
+float min_FOV = 0.0;    // en radianes angulo minimo de vista de la camara
 
 /// parametros para convertir nube de puntos en imagen
 float angular_resolution_x =0.5f;
 float angular_resolution_y = 2.1f;
+float angular_correction = 1.0;
 float max_angle_width= 360.0f;
 float max_angle_height = 180.0f;
 float z_max = 100.0f;
@@ -102,16 +104,16 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
   //Conversion from sensor_msgs::PointCloud2 to pcl::PointCloud<T>
   pcl::PCLPointCloud2 pcl_pc2;
   pcl_conversions::toPCL(*in_pc2,pcl_pc2);
-  PointCloud::Ptr msg_pointCloud(new PointCloud);
+  LC_PointCloud::Ptr msg_pointCloud(new LC_PointCloud);
   pcl::fromPCLPointCloud2(pcl_pc2,*msg_pointCloud);
   ///
 
   ////// filter point cloud
   if (msg_pointCloud == NULL) return;
 
-  PointCloud::Ptr cloud_in (new PointCloud);
+  LC_PointCloud::Ptr cloud_in (new LC_PointCloud);
   //PointCloud::Ptr cloud_filter (new PointCloud);
-  PointCloud::Ptr cloud_out (new PointCloud);
+  LC_PointCloud::Ptr cloud_out (new LC_PointCloud);
 
   //PointCloud::Ptr cloud_aux (new PointCloud);
  // pcl::PointXYZI point_aux;
@@ -207,8 +209,8 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
   //============================================================================================================
 
 
-  PointCloud::Ptr point_cloud (new PointCloud);
-  PointCloud::Ptr cloud (new PointCloud);
+  LC_PointCloud::Ptr point_cloud (new LC_PointCloud);
+  LC_PointCloud::Ptr cloud (new LC_PointCloud);
   point_cloud->width = ZI.n_cols;
   point_cloud->height = ZI.n_rows;
   point_cloud->is_dense = false;
@@ -216,7 +218,54 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
   arma::mat Zout = ZI;
 
+  Eigen::MatrixXf RTlc(4,4); // translation matrix lidar-camera
+  Eigen::MatrixXf Rroll(3,3), Rpitch(3,3), Ryaw(3,3), Rfinal(3,3);
+  tf::TransformListener listener;
+  tf::StampedTransform lidar2camera_transform;
 
+  try {
+      listener.waitForTransform("robot_top_3d_laser_link", "robot_front_ptz_camera_frame_link", ros::Time(0), ros::Duration(10.0) );
+      listener.lookupTransform("robot_top_3d_laser_link", "robot_front_ptz_camera_frame_link", ros::Time(0), lidar2camera_transform);
+      tf::Quaternion q = lidar2camera_transform.getRotation();
+      // std::cout<<"["<<q.x()<<", "<<q.y()<<", "<<q.z()<<", "<<q.w()<<"]"<<std::endl;
+      tf::Matrix3x3 m(q);
+      tf::Vector3 v = lidar2camera_transform.getOrigin();
+      
+      // RTlc<<   Rlc(0), Rlc(3) , Rlc(6) ,Tlc(0)
+      //          ,Rlc(1), Rlc(4) , Rlc(7) ,Tlc(1)
+      //          ,Rlc(2), Rlc(5) , Rlc(8) ,Tlc(2)
+      //          ,0       , 0        , 0  , 1    ;
+      // RTlc<<   m[0][0], m[0][1] , m[0][2] ,v[0]
+      //         ,m[1][0], m[1][1] , m[1][2] ,v[1]
+      //         ,m[2][0], m[2][1] , m[2][2] ,v[2]
+      //         ,0       , 0        , 0  , 1    ;
+      
+      double roll, pitch, yaw;
+      m.getRPY(roll, pitch, yaw);
+      
+      Rroll << cos(roll),   sin(roll), 0, 
+               -sin(roll),  cos(roll), 0,
+               0,           0,         1; // Roll del láser = roll de la cámara
+
+      Rpitch << 1,          0,           0 ,
+                0,          cos(pitch), -sin(pitch), 
+                0,           sin(pitch), cos(pitch); // Yaw del láser = pitch de la cámara
+
+      Ryaw << cos(yaw)     , 0    , sin(yaw), 
+              0           , 1    , 0,        
+              -sin(yaw)   , 0    , cos(yaw); // Roll del láser = yaw de la cámara
+      
+      Rfinal = Rroll*Rpitch*Ryaw;
+
+      RTlc<<  Rfinal(0,0),  Rfinal(0,1), Rfinal(0,2), 0,
+              Rfinal(1,0),  Rfinal(1,1), Rfinal(1,2), 0,
+              Rfinal(2,0),  Rfinal(2,1), Rfinal(2,2), 0,
+              0             , 0             , 0        , 1;
+
+  } catch (tf::TransformException ex) {
+      ROS_ERROR("%s",ex.what());
+  }
+  
   //////////////////filtrado de elementos interpolados con el fondo
   for (uint i=0; i< ZI.n_rows; i+=1)
    {
@@ -242,24 +291,25 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
       {
 
         float ang = M_PI-((2.0 * M_PI * j )/(ZI.n_cols));
-
         if (ang < min_FOV-M_PI/2.0|| ang > max_FOV - M_PI/2.0)
           continue;
 
         if(!(Zout(i,j)== 0 ))
         {
           float pc_modulo = Zout(i,j);
-          float pc_x = sqrt(pow(pc_modulo,2)- pow(ZzI(i,j),2)) * cos(ang);
-          float pc_y = sqrt(pow(pc_modulo,2)- pow(ZzI(i,j),2)) * sin(ang);
+          float pc_x = sqrt(pow(pc_modulo,2)- pow(ZzI(i,j),2))* cos(ang);
+          float pc_y = sqrt(pow(pc_modulo,2)- pow(ZzI(i,j),2))* sin(ang);
 
-          float ang_x_lidar = 0.6*M_PI/180.0;
+          float ang_x_lidar = angular_correction*M_PI/180.0;
 
           Eigen::MatrixXf Lidar_matrix(3,3); //matrix  transformation between lidar and range image. It rotates the angles that it has of error with respect to the ground
           Eigen::MatrixXf result(3,1);
+          // Lidar_matrix <<   RTlc(0,0) , RTlc(0,1), RTlc(0,2),
+          //                   RTlc(1,0) , RTlc(1,1), RTlc(1,2),
+          //                   RTlc(2,0) , RTlc(2,1), RTlc(2,2);
           Lidar_matrix <<   cos(ang_x_lidar) ,0                ,sin(ang_x_lidar),
                             0                ,1                ,0,
                             -sin(ang_x_lidar),0                ,cos(ang_x_lidar) ;
-
 
           result << pc_x,
                     pc_y,
@@ -280,7 +330,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
   //============================================================================================================
 
-   PointCloud::Ptr P_out (new PointCloud);
+   LC_PointCloud::Ptr P_out (new LC_PointCloud);
 
    //filremove noise of point cloud
   /*pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
@@ -298,14 +348,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
   P_out = cloud;
 
-
-  Eigen::MatrixXf RTlc(4,4); // translation matrix lidar-camera
- RTlc<<   Rlc(0), Rlc(3) , Rlc(6) ,Tlc(0)
-          ,Rlc(1), Rlc(4) , Rlc(7) ,Tlc(1)
-          ,Rlc(2), Rlc(5) , Rlc(8) ,Tlc(2)
-          ,0       , 0        , 0  , 1    ;
-
-  //std::cout<<RTlc<<std::endl;
+  // std::cout<<RTlc<<std::endl;
 
   int size_inter_Lidar = (int) P_out->points.size();
 
@@ -330,11 +373,12 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
   tf::Transform transform;
   tf::Quaternion q;
   bool detected_center = false;
+  geometry_msgs::PointStamped in_point, transformed_pose;
 
   for (int i = 0; i < size_inter_Lidar; i++)
   {
-      pc_matrix(0,0) = -P_out->points[i].y;
-      pc_matrix(1,0) = -P_out->points[i].z;
+      pc_matrix(0,0) =  -P_out->points[i].y;
+      pc_matrix(1,0) =  -P_out->points[i].z;
       pc_matrix(2,0) =  P_out->points[i].x;
       pc_matrix(3,0) = 1.0;
 
@@ -348,17 +392,24 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
       int upper_limit = height/2 + 10;
       int bottom_limit = height/2 - 10;
 
+      if(px_data<0.0 || px_data>=cols || py_data<0.0 || py_data>=rows)
+        continue;
+
       if(!detected_center && px_data>=left_limit && px_data<=right_limit && py_data>=bottom_limit && py_data<=upper_limit)
       {
+        // in_point.header.frame_id = "robot_top_3d_laser_link";
+        // in_point.point.x = P_out->points[i].x;
+        // in_point.point.y = P_out->points[i].y;
+        // in_point.point.z = P_out->points[i].z;
+        // listener.transformPoint("robot_odom", in_point, transformed_pose);
+
         transform.setOrigin( tf::Vector3(P_out->points[i].x, P_out->points[i].y, P_out->points[i].z) );
-        q.setRPY(0, 0, 180);
+        // transform.setOrigin( tf::Vector3(transformed_pose.point.x, transformed_pose.point.y, transformed_pose.point.z) );
+        q.setRPY(0, 0, 0);
         transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "robot_top_3d_laser_link", "robot_inpection_point"));
+        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "robot_top_3d_laser_link", "robot_inspection_point"));
         detected_center = true;
       }
-
-      if(px_data<0.0 || px_data>=cols || py_data<0.0 || py_data>=rows)
-          continue;
 
       int color_dis_x = (int)(255*((P_out->points[i].x)/maxlen));
       int color_dis_z = (int)(255*((P_out->points[i].x)/10.0));
@@ -369,6 +420,9 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
       //point cloud con color
       cv::Vec3b & color = color_pcl->image.at<cv::Vec3b>(py_data,px_data);
 
+      // point.x = transformed_pose.point.x;
+      // point.y = transformed_pose.point.y;
+      // point.z = transformed_pose.point.z;
       point.x = P_out->points[i].x;
       point.y = P_out->points[i].y;
       point.z = P_out->points[i].z;
@@ -414,6 +468,7 @@ int main(int argc, char** argv)
   nh.getParam("/y_interpolation", interpol_value);
 
   nh.getParam("/ang_Y_resolution", angular_resolution_y);
+  nh.getParam("/angular_correction", angular_correction);
 
 
   XmlRpc::XmlRpcValue param;
@@ -428,9 +483,9 @@ int main(int argc, char** argv)
   tf::Matrix3x3 m;
   m.setRPY(param[0], param[1], param[2]);
 
-  Rlc <<  (double)m[0][0] ,(double)m[0][1] ,(double)m[0][2]
-         ,(double)m[1][0] ,(double)m[1][1] ,(double)m[1][2]
-         ,(double)m[2][0] ,(double)m[2][1] ,(double)m[2][2];
+  Rlc <<  (double)param[0] ,(double)param[1] ,(double)param[2]
+         ,(double)param[3] ,(double)param[4] ,(double)param[5]
+         ,(double)param[6] ,(double)param[7] ,(double)param[8];
 
   nh.getParam("/matrix_file/camera_matrix", param);
 
@@ -447,7 +502,7 @@ int main(int argc, char** argv)
   pcOnimg_pub = nh.advertise<sensor_msgs::Image>("/pcOnImage_image", 1);
   rangeImage = boost::shared_ptr<pcl::RangeImageSpherical>(new pcl::RangeImageSpherical);
 
-  pc_pub = nh.advertise<PointCloud> ("/points2", 1);
+  pc_pub = nh.advertise<LC_PointCloud> ("/points2", 1);
 
   ros::spin();
 }
