@@ -33,6 +33,11 @@ catkin_package(
   DEPENDS PCL
 )
 
+catkin_install_python(PROGRAMS
+scripts/publish_image.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 ###########
 ## Build ##
 ###########
