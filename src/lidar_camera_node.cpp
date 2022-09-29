@@ -68,6 +68,11 @@ float interpol_value = 20.0;
 std::string imgTopic = "/camera/color/image_raw";
 std::string pcTopic = "/velodyne_points";
 
+// frames
+std::string lidarFrame = "robot_top_3d_laser_link";
+std::string cameraFrame = "robot_front_ptz_camera_frame_link";
+std::string inspectionPointFrame = "robot_inspection_point";
+
 //matrix calibration lidar and camera
 
 Eigen::MatrixXf Tlc(3,1); // translation matrix lidar-camera
@@ -224,36 +229,25 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
   tf::StampedTransform lidar2camera_transform;
 
   try {
-      listener.waitForTransform("robot_top_3d_laser_link", "robot_front_ptz_camera_frame_link", ros::Time(0), ros::Duration(10.0) );
-      listener.lookupTransform("robot_top_3d_laser_link", "robot_front_ptz_camera_frame_link", ros::Time(0), lidar2camera_transform);
+      listener.waitForTransform(lidarFrame, cameraFrame, ros::Time(0), ros::Duration(10.0) );
+      listener.lookupTransform(lidarFrame, cameraFrame, ros::Time(0), lidar2camera_transform);
       tf::Quaternion q = lidar2camera_transform.getRotation();
-      // std::cout<<"["<<q.x()<<", "<<q.y()<<", "<<q.z()<<", "<<q.w()<<"]"<<std::endl;
       tf::Matrix3x3 m(q);
-      tf::Vector3 v = lidar2camera_transform.getOrigin();
-      
-      // RTlc<<   Rlc(0), Rlc(3) , Rlc(6) ,Tlc(0)
-      //          ,Rlc(1), Rlc(4) , Rlc(7) ,Tlc(1)
-      //          ,Rlc(2), Rlc(5) , Rlc(8) ,Tlc(2)
-      //          ,0       , 0        , 0  , 1    ;
-      // RTlc<<   m[0][0], m[0][1] , m[0][2] ,v[0]
-      //         ,m[1][0], m[1][1] , m[1][2] ,v[1]
-      //         ,m[2][0], m[2][1] , m[2][2] ,v[2]
-      //         ,0       , 0        , 0  , 1    ;
-      
+            
       double roll, pitch, yaw;
       m.getRPY(roll, pitch, yaw);
       
       Rroll << cos(roll),   sin(roll), 0, 
                -sin(roll),  cos(roll), 0,
-               0,           0,         1; // Roll del láser = roll de la cámara
+               0,           0,         1; 
 
       Rpitch << 1,          0,           0 ,
                 0,          cos(pitch), -sin(pitch), 
-                0,           sin(pitch), cos(pitch); // Yaw del láser = pitch de la cámara
+                0,           sin(pitch), cos(pitch); 
 
       Ryaw << cos(yaw)     , 0    , sin(yaw), 
               0           , 1    , 0,        
-              -sin(yaw)   , 0    , cos(yaw); // Roll del láser = yaw de la cámara
+              -sin(yaw)   , 0    , cos(yaw);
       
       Rfinal = Rroll*Rpitch*Ryaw;
 
@@ -304,9 +298,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
           Eigen::MatrixXf Lidar_matrix(3,3); //matrix  transformation between lidar and range image. It rotates the angles that it has of error with respect to the ground
           Eigen::MatrixXf result(3,1);
-          // Lidar_matrix <<   RTlc(0,0) , RTlc(0,1), RTlc(0,2),
-          //                   RTlc(1,0) , RTlc(1,1), RTlc(1,2),
-          //                   RTlc(2,0) , RTlc(2,1), RTlc(2,2);
+
           Lidar_matrix <<   cos(ang_x_lidar) ,0                ,sin(ang_x_lidar),
                             0                ,1                ,0,
                             -sin(ang_x_lidar),0                ,cos(ang_x_lidar) ;
@@ -407,7 +399,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
         // transform.setOrigin( tf::Vector3(transformed_pose.point.x, transformed_pose.point.y, transformed_pose.point.z) );
         q.setRPY(0, 0, 0);
         transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "robot_top_3d_laser_link", "robot_inspection_point"));
+        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), lidarFrame, inspectionPointFrame));
         detected_center = true;
       }
 
@@ -441,7 +433,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
     pc_color->is_dense = true;
     pc_color->width = (int) pc_color->points.size();
     pc_color->height = 1;
-    pc_color->header.frame_id = "robot_top_3d_laser_link";
+    pc_color->header.frame_id = lidarFrame;
 
   pcOnimg_pub.publish(cv_ptr->toImageMsg());
   pc_pub.publish (pc_color);
@@ -463,6 +455,9 @@ int main(int argc, char** argv)
   nh.getParam("/min_ang_FOV", min_FOV);
   nh.getParam("/pcTopic", pcTopic);
   nh.getParam("/imgTopic", imgTopic);
+  nh.getParam("/lidar_frame", lidarFrame)
+  nh.getParam("/camera_frame", cameraFrame)
+  nh.getParam("/inspection_point_frame", inspectionPointFrame)
 
   nh.getParam("/x_resolution", angular_resolution_x);
   nh.getParam("/y_interpolation", interpol_value);

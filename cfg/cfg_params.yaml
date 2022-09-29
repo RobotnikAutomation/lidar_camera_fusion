@@ -1,13 +1,27 @@
-camera_matrix: [1128.63623046875, 0.0, 633.8600346322928, 0.0, 
-                0.0, 1133.3480224609375, 284.23143854685986, 0.0, 
-                0.0, 0.0, 1.0, 0.0]
+# camera_matrix: [1128.63623046875, 0.0, 633.8600346322928, 0.0, 
+#                 0.0, 1133.3480224609375, 284.23143854685986, 0.0, 
+#                 0.0, 0.0, 1.0, 0.0]
 
-rlc:  [   -0.125503  ,-0.950118 ,0.285526,
-  0.968119 , -0.180176   , -0.174018,
- 0.216782 , 0.254583    ,0.94244 ]
+# rlc:  [   -0.125503  ,-0.950118 ,0.285526,
+#   0.968119 , -0.180176   , -0.174018,
+#  0.216782 , 0.254583    ,0.94244 ]
 
-tlc: [ 0.32008, 1.11022e-16, -0.097]
+# tlc: [ 0.32008, 1.11022e-16, -0.097]
 
+
+maxlen: '15.0'    
+minlen: '0.0'    
+max_ang_FOV: '3.141692'
+min_ang_FOV: '0.0'
+pcTopic: '/robot/top_3d_laser/rslidar_points'
+imgTopic: '/robot/front_ptz_camera/image_color'
+lidar_frame: 'robot_top_3d_laser_link'
+camera_frame: 'robot_front_ptz_camera_frame_link'
+inspection_point_frame: 'robot_inspection_point'
+x_resolution: '0.25'
+y_interpolation: '10.0'
+ang_Y_resolution: '2.05'
+angular_correction: '0.0'
 
 
 
