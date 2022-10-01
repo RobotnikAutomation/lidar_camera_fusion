@@ -455,9 +455,9 @@ int main(int argc, char** argv)
   nh.getParam("/min_ang_FOV", min_FOV);
   nh.getParam("/pcTopic", pcTopic);
   nh.getParam("/imgTopic", imgTopic);
-  nh.getParam("/lidar_frame", lidarFrame)
-  nh.getParam("/camera_frame", cameraFrame)
-  nh.getParam("/inspection_point_frame", inspectionPointFrame)
+  nh.getParam("/lidar_frame", lidarFrame);
+  nh.getParam("/camera_frame", cameraFrame);
+  nh.getParam("/inspection_point_frame", inspectionPointFrame);
 
   nh.getParam("/x_resolution", angular_resolution_x);
   nh.getParam("/y_interpolation", interpol_value);
