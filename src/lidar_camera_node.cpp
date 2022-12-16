@@ -91,6 +91,11 @@ pcl::RangeImage::CoordinateFrame coordinate_frame = pcl::RangeImage::LASER_FRAME
 
 void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , const ImageConstPtr& in_image)
 {
+    if(in_image->data.size() <= 0)
+    { 
+      ROS_WARN("Message received but no image inside"); 
+      return;
+    }
     int height = in_image->height;
     int width = in_image->width;
 
@@ -135,7 +140,6 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
   }
 
-
   //                                                  point cloud to image
 
   //============================================================================================================
@@ -146,11 +150,8 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
                                        pcl::deg2rad(max_angle_width), pcl::deg2rad(max_angle_height),
                                        sensorPose, coordinate_frame, 0.0f, 0.0f, 0);
 
-
-
   int cols_img = rangeImage->width;
   int rows_img = rangeImage->height;
-
 
   arma::mat Z;  // interpolation de la imagen
   arma::mat Zz; // interpolation de las alturas de la imagen
@@ -227,12 +228,12 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
   Eigen::MatrixXf Rroll(3,3), Rpitch(3,3), Ryaw(3,3), Rfinal(3,3);
   tf::TransformListener listener;
   tf::StampedTransform lidar2camera_transform;
-
   try {
       listener.waitForTransform(lidarFrame, cameraFrame, ros::Time(0), ros::Duration(10.0) );
       listener.lookupTransform(lidarFrame, cameraFrame, ros::Time(0), lidar2camera_transform);
       tf::Quaternion q = lidar2camera_transform.getRotation();
       tf::Matrix3x3 m(q);
+      tf::Vector3 v = lidar2camera_transform.getOrigin();
             
       double roll, pitch, yaw;
       m.getRPY(roll, pitch, yaw);
@@ -251,15 +252,21 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
       
       Rfinal = Rroll*Rpitch*Ryaw;
 
-      RTlc<<  Rfinal(0,0),  Rfinal(0,1), Rfinal(0,2), 0,
-              Rfinal(1,0),  Rfinal(1,1), Rfinal(1,2), 0,
-              Rfinal(2,0),  Rfinal(2,1), Rfinal(2,2), 0,
-              0             , 0             , 0        , 1;
+      // RTlc<<  Rfinal(0,0),  Rfinal(0,1), Rfinal(0,2), v[0],
+      //         Rfinal(1,0),  Rfinal(1,1), Rfinal(1,2), v[1],
+      //         Rfinal(2,0),  Rfinal(2,1), Rfinal(2,2), v[2],
+      //         0             , 0             , 0        , 1;
+
+      RTlc<<  m[0][0],  m[0][1], m[0][2], v[0],
+              m[1][0],  m[1][1], m[1][2], v[1],
+              m[2][0],  m[2][1], m[2][2], v[2],
+            0             , 0             , 0        , 1;
 
   } catch (tf::TransformException ex) {
       ROS_ERROR("%s",ex.what());
   }
-  
+  ROS_INFO("%d", ZI.n_rows);
+  ROS_INFO("%d", ZI.n_cols);
   //////////////////filtrado de elementos interpolados con el fondo
   for (uint i=0; i< ZI.n_rows; i+=1)
    {
@@ -267,6 +274,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
       {
        if((ZI(i,j)== 0 ))
        {
+        ROS_INFO("NON ZERO");
         if(i+interpol_value<ZI.n_rows)
           for (int k=1; k<= interpol_value; k+=1)
             Zout(i+k,j)=0;
@@ -340,7 +348,7 @@ void callback(const boost::shared_ptr<const sensor_msgs::PointCloud2>& in_pc2 , 
 
   P_out = cloud;
 
-  // std::cout<<RTlc<<std::endl;
+  std::cout<<RTlc<<std::endl;
 
   int size_inter_Lidar = (int) P_out->points.size();
 
@@ -449,21 +457,21 @@ int main(int argc, char** argv)
 
   /// Load Parameters
 
-  nh.getParam("/maxlen", maxlen);
-  nh.getParam("/minlen", minlen);
-  nh.getParam("/max_ang_FOV", max_FOV);
-  nh.getParam("/min_ang_FOV", min_FOV);
-  nh.getParam("/pcTopic", pcTopic);
-  nh.getParam("/imgTopic", imgTopic);
-  nh.getParam("/lidar_frame", lidarFrame);
-  nh.getParam("/camera_frame", cameraFrame);
-  nh.getParam("/inspection_point_frame", inspectionPointFrame);
+  nh.getParam("/matrix_file/maxlen", maxlen);
+  nh.getParam("/matrix_file/minlen", minlen);
+  nh.getParam("/matrix_file/max_ang_FOV", max_FOV);
+  nh.getParam("/matrix_file/min_ang_FOV", min_FOV);
+  nh.getParam("/matrix_file/pcTopic", pcTopic);
+  nh.getParam("/matrix_file/imgTopic", imgTopic);
+  nh.getParam("/matrix_file/lidar_frame", lidarFrame);
+  nh.getParam("/matrix_file/camera_frame", cameraFrame);
+  nh.getParam("/matrix_file/inspection_point_frame", inspectionPointFrame);
 
-  nh.getParam("/x_resolution", angular_resolution_x);
-  nh.getParam("/y_interpolation", interpol_value);
+  nh.getParam("/matrix_file/x_resolution", angular_resolution_x);
+  nh.getParam("/matrix_file/y_interpolation", interpol_value);
 
-  nh.getParam("/ang_Y_resolution", angular_resolution_y);
-  nh.getParam("/angular_correction", angular_correction);
+  nh.getParam("/matrix_file/ang_Y_resolution", angular_resolution_y);
+  nh.getParam("/matrix_file/angular_correction", angular_correction);
 
 
   XmlRpc::XmlRpcValue param;

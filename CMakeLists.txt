@@ -21,6 +21,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  std_srvs
   tf
 )
 
@@ -35,6 +36,8 @@ catkin_package(
 
 catkin_install_python(PROGRAMS
 scripts/publish_image.py
+scripts/image_re_publisher.py
+scripts/moving_camera_meta.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

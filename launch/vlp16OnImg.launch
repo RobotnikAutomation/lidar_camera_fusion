@@ -17,6 +17,8 @@
         <rosparam file="$(find lidar_camera_fusion)/cfg/cfg_params.yaml" />
     </group>
     
+    <!-- <node pkg="lidar_camera_fusion" type="image_re_publisher.py" name="image_re_publisher" output="screen"/> -->
+
     <node pkg="lidar_camera_fusion" type="lidar_camera_node" name="lidar_camera_node" output="screen"/>
   
 </launch>
